@@ -146,6 +146,11 @@ table.times{border-collapse:collapse;width:100%;font-size:1rem}
 </style>
 </head>
 <body>
+  <div style="max-width:480px;margin:0 auto;padding:8px 16px;background:var(--canvas)">
+    <button type="button" id="shuttle-read-aloud" class="neutral-btn">
+      <span aria-hidden="true">🔊</span><span aria-live="polite">Read this screen aloud</span>
+    </button>
+  </div>
   <!-- ===================== S1: Where are you going? ===================== -->
   <section id="s1" class="screen" aria-labelledby="s1-title">
     <header class="s1-head">
@@ -739,6 +744,90 @@ document.addEventListener("keydown", (e) => {
 setLang("en");
 locate();
 updateSuggestion();
+</script>
+<script>
+(() => {
+  const reader = document.getElementById("shuttle-read-aloud");
+  const synthesis = window.speechSynthesis;
+  const language = () => document.documentElement.lang === "ar" ? "ar" : "en";
+  const labels = {
+    en: { start: "Read this screen aloud", stop: "Stop reading", error: "Audio reading unavailable" },
+    ar: { start: "اقرأ الشاشة بصوت عالٍ", stop: "إيقاف القراءة", error: "القراءة الصوتية غير متاحة" },
+  };
+  let current = null;
+
+  function setLabel(state) {
+    reader.lastElementChild.textContent = labels[language()][state];
+  }
+
+  function stopReading() {
+    if (current) {
+      current = null;
+      synthesis.cancel();
+    }
+    setLabel("start");
+  }
+
+  function speechText(node) {
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent;
+    if (!(node instanceof HTMLElement) || node.hidden ||
+        node.getAttribute("aria-hidden") === "true" ||
+        getComputedStyle(node).display === "none" ||
+        getComputedStyle(node).visibility === "hidden") return "";
+
+    const labelId = node.getAttribute("aria-labelledby");
+    let spoken = node.matches("button, a")
+      ? (document.getElementById(labelId)?.textContent || node.getAttribute("aria-label"))
+      : "";
+    if (!spoken) {
+      spoken = Array.from(node.childNodes, speechText).join(" ").replace(/\s+/g, " ").trim();
+    }
+    if (!spoken) return "";
+    return node.matches("h1,h2,h3,p,li,button,a,tr") && !/[.!?؟]$/.test(spoken)
+      ? spoken + "."
+      : spoken;
+  }
+
+  reader.addEventListener("click", () => {
+    if (current) {
+      stopReading();
+      return;
+    }
+    if (!synthesis || !window.SpeechSynthesisUtterance) {
+      setLabel("error");
+      return;
+    }
+    const screen = document.querySelector(".screen:not([hidden])");
+    if (!screen) return;
+    const message = speechText(screen) + " " + speechText(document.getElementById("voice-box"));
+    const utterance = new SpeechSynthesisUtterance(message.trim());
+    utterance.lang = language() === "ar" ? "ar-SA" : "en-US";
+    utterance.rate = 0.95;
+    utterance.onend = () => {
+      if (current === utterance) stopReading();
+    };
+    utterance.onerror = () => {
+      if (current !== utterance) return;
+      current = null;
+      setLabel("error");
+    };
+    current = utterance;
+    setLabel("stop");
+    synthesis.speak(utterance);
+  });
+
+  document.addEventListener("click", (event) => {
+    if (current && !reader.contains(event.target)) stopReading();
+  }, true);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && current) stopReading();
+  });
+  const observer = new MutationObserver(stopReading);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["lang"] });
+  document.querySelectorAll(".screen").forEach((screen) => {
+    observer.observe(screen, { attributes: true, attributeFilter: ["hidden"] });
+  });
+})();
 </script>
 </body>
 </html>
